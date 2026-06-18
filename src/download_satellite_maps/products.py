@@ -18,25 +18,27 @@ class Product:
     url: str | None = None            # single global source (/vsicurl)
     regional: bool = False            # GLAD: per-region tiles
     url_template: str | None = None   # regional: format with {region}
-    scale_factor: float = 1.0         # multiply samples downstream (e.g. GPW *0.1)
+    scale_factor: float = 1.0         # applied after masking (e.g. GPW int*0.1 -> m)
+    nodata: float | None = None       # raster fill mapped to NaN
+    invalid_values: tuple = ()        # extra sentinel values mapped to NaN
     notes: str = ""
 
 
 ETH = Product(
     id="eth", name="ETH/Lang Global Sentinel-2 Canopy Height", epoch_year=2020,
-    native_res_m=10.0,
+    native_res_m=10.0, nodata=255.0,
     url=("https://libdrive.ethz.ch/public.php/dav/files/cO8or7iOe5dT2Rt/"
          "ETH_GlobalCanopyHeight_10m_2020_mosaic_Map.vrt"),
 )
 GPW = Product(
     id="gpw", name="GPW Global Short Vegetation Height", epoch_year=2017,
-    native_res_m=90.0, scale_factor=0.1,
+    native_res_m=90.0, scale_factor=0.1, nodata=-32000.0,
     url=("https://zenodo.org/api/records/15198672/files/"
          "gpw_short.veg.height_egbt_m_90m_s_20170101_20171231_go_epsg.4326_v1.tif/content"),
 )
 GLAD = Product(
     id="glad", name="GLAD/Potapov Global Forest Canopy Height", epoch_year=2019,
-    native_res_m=30.0, regional=True,
+    native_res_m=30.0, regional=True, invalid_values=(101.0, 102.0, 103.0),
     url_template=("https://glad.geog.umd.edu/Potapov/Forest_height_2019/"
                   "Forest_height_2019_{region}.tif"),
     notes="raster values 101/102/103 = water/snow-ice/nodata (mask downstream)",
