@@ -1,0 +1,15 @@
+README.md
+pyproject.toml
+src/download_satellite_maps/__init__.py
+src/download_satellite_maps/cli.py
+src/download_satellite_maps/clip.py
+src/download_satellite_maps/config.py
+src/download_satellite_maps/footprints.py
+src/download_satellite_maps/products.py
+src/download_satellite_maps/storage.py
+src/download_satellite_maps.egg-info/PKG-INFO
+src/download_satellite_maps.egg-info/SOURCES.txt
+src/download_satellite_maps.egg-info/dependency_links.txt
+src/download_satellite_maps.egg-info/entry_points.txt
+src/download_satellite_maps.egg-info/requires.txt
+src/download_satellite_maps.egg-info/top_level.txt

@@ -1,0 +1,2 @@
+[console_scripts]
+download-satellite-maps = download_satellite_maps.cli:main
