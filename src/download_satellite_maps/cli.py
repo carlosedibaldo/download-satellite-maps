@@ -160,10 +160,15 @@ def main() -> int:
                     choices=list(PRODUCTS))
     ap.add_argument("--ee-project", default="forest-als",
                     help="GCP project for Earth Engine (echosat only)")
+    ap.add_argument("--tiles", nargs="+", default=None,
+                    help="Restrict to these tile_ids (e.g. 724000_4699000)")
     ap.add_argument("--overwrite", action="store_true")
     args = ap.parse_args()
 
     foots = als_tile_footprints(args.site)
+    if args.tiles:
+        want = set(args.tiles)
+        foots = [f for f in foots if f["tile_id"] in want]
     for f in foots:                                # carry site for dest paths
         f["site"] = args.site
     print(f"{args.site}: {len(foots)} ALS tile footprints "
