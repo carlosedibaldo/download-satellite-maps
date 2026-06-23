@@ -33,6 +33,7 @@ class Product:
     temporal_years: tuple[int, ...] = ()  # per-year layers (temporal products)
     tile_zoom: int | None = None      # Bing/MS quadkey zoom (Meta: v1=9, v2=10)
     tile_url_template: str | None = None  # quadkey COG url, format with {quadkey}
+    arcgis_imageserver: str | None = None  # LANDFIRE LFPS ImageServer base url
     notes: str = ""
 
 
@@ -96,6 +97,28 @@ ECHOSAT = Product(
            "/vsicurl); clipped per ALS-matched year — see gee.py."),
 )
 
+IS2CHM = Product(
+    id="is2chm", name="ICESat-2 Canopy Height CONUS (Malambo & Popescu 2025)",
+    epoch_year=2020, native_res_m=30.0, scale_factor=0.1, gee_native_epsg=4326,
+    gee_asset="projects/sat-io/open-datasets/ICESAT/CHM_CONUS", gee_band="b1",
+    notes=("GEE ImageCollection (6 CONUS regional tiles), band b1, native EPSG:4326 "
+           "~30 m. Source int *0.1 -> metres (0-54 m). 2019-2021 epoch (epoch_year="
+           "2020 nominal). Malambo & Popescu 2025, doi:10.5067/J8DMNXTBZ22J. "
+           "CONUS-only; dispatches via _do_gee_single like GLAD."),
+)
+
+LANDFIRE_CH = Product(
+    id="landfire_ch", name="LANDFIRE Forest Canopy Height (LF2024)",
+    epoch_year=2024, native_res_m=30.0, scale_factor=0.1, nodata=-9999.0,
+    arcgis_imageserver=("https://lfps.usgs.gov/arcgis/rest/services/"
+                        "Landfire_LF2024/LF2024_CH_CONUS/ImageServer"),
+    notes=("LFPS ArcGIS ImageServer exportImage (synchronous), native EPSG:5070 30 m. "
+           "int16 metres*10 (0-510 -> 0-51 m; 0 = non-forest; -9999 nodata) -> float32 "
+           "m + NaN. Uses LF2024 not LF2025: the LF2025 service only serves the western "
+           "US so far (eastern GeoAreas incl. HARV are NoData) — LF2024 is the most "
+           "recent CH with national coverage. CONUS-only. See landfire.py."),
+)
+
 PRODUCTS: dict[str, Product] = {
-    p.id: p for p in (ETH, GPW, GLAD, ECHOSAT, META_V1, META_V2)
+    p.id: p for p in (ETH, GPW, GLAD, ECHOSAT, META_V1, META_V2, IS2CHM, LANDFIRE_CH)
 }
