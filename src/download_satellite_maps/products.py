@@ -31,6 +31,8 @@ class Product:
     gee_band: str = "b1"              # band id for single-epoch GEE assets
     gee_native_epsg: int | None = None  # output CRS for GEE clips (None=ALS tile UTM)
     temporal_years: tuple[int, ...] = ()  # per-year layers (temporal products)
+    gee_temporal_by_date: bool = False  # True: one IMAGE per year (filter by date,
+    #   e.g. GPW); False: one mosaic with a band per year (e.g. ECHOSAT b1..b7)
     tile_zoom: int | None = None      # Bing/MS quadkey zoom (Meta: v1=9, v2=10)
     tile_url_template: str | None = None  # quadkey COG url, format with {quadkey}
     arcgis_imageserver: str | None = None  # LANDFIRE LFPS ImageServer base url
@@ -44,10 +46,16 @@ ETH = Product(
          "ETH_GlobalCanopyHeight_10m_2020_mosaic_Map.vrt"),
 )
 GPW = Product(
-    id="gpw", name="GPW Global Short Vegetation Height", epoch_year=2017,
-    native_res_m=90.0, scale_factor=0.1, nodata=-32000.0,
-    url=("https://zenodo.org/api/records/15198672/files/"
-         "gpw_short.veg.height_egbt_m_90m_s_20170101_20171231_go_epsg.4326_v1.tif/content"),
+    id="gpw", name="Global Pasture Watch Annual Median Vegetation Height (30 m)",
+    epoch_year=2022, native_res_m=30.0, scale_factor=0.1, gee_native_epsg=4326,
+    gee_asset="projects/global-pasture-watch/assets/gsvh-30m/v1/short-veg-height_m",
+    gee_band="height", temporal_years=tuple(range(2000, 2025)),
+    gee_temporal_by_date=True,   # one ee.Image per year (filter by date)
+    notes=("GEE ImageCollection (25 annual images 2000-2024), band 'height', native "
+           "EPSG:4326 ~30 m. ICESat-2 + Landsat ML median vegetation height; int "
+           "*0.1 -> metres. Clipped per ALS-matched year (Mohammadi/Parente et al. "
+           "2025, Sci Data; doi:10.5281/zenodo.15198654). Replaces the old single "
+           "90 m 2017 Zenodo file with the proper annual 30 m product."),
 )
 GLAD = Product(
     id="glad", name="GLAD/Potapov Global Forest Canopy Height", epoch_year=2019,

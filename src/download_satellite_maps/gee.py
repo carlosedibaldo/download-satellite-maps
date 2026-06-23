@@ -52,30 +52,12 @@ def echosat_band(product: Product, year: int) -> str:
     return f"b{product.temporal_years.index(year) + 1}"
 
 
-def clip_gee_band(product: Product, band: str, epsg: int, bounds,
-                  out_path: Path, project: str = "forest-als") -> Path:
-    """Download `band` of `product.gee_asset` over `bounds` (in EPSG:`epsg`, the ALS
-    tile's UTM) to a native-resolution float32-metre GeoTIFF. The OUTPUT CRS is the
-    product's native CRS — `product.gee_native_epsg` if set (e.g. GLAD is global
-    EPSG:4326), else `epsg` (e.g. ECHOSAT's per-tile UTM == the ALS zone). We never
-    force a reprojection: the output stays in the source's own projection.
-
-    Source sentinels (`nodata` + `invalid_values`, native units) are masked in EE
-    before scaling; the value is scaled *scale_factor -> metres; masked pixels become
-    NaN nodata so the public clip reads directly in metres like the other products."""
-    ee = ee_init(project)
-    left, bottom, right, top = bounds
-    # The footprint is given in the ALS tile UTM; define the region there. The OUTPUT
-    # grid uses the product's native CRS so we don't resample into a foreign zone.
-    region = ee.Geometry.Rectangle([left, bottom, right, top],
-                                   proj=f"EPSG:{epsg}", geodesic=False)
-    out_crs = f"EPSG:{product.gee_native_epsg or epsg}"
-    img = (
-        ee.ImageCollection(product.gee_asset)
-        .filterBounds(region)
-        .mosaic()
-        .select([band])
-    )
+def _export_image(product: Product, img, region, epsg: int,
+                  out_path: Path) -> Path:
+    """Mask source sentinels, scale to metres, and download `img` (a single-band
+    ee.Image already selected by the caller) over `region` to a native-CRS float32
+    GeoTIFF. OUTPUT CRS = `product.gee_native_epsg` if set else `epsg` (the ALS UTM)
+    — never a forced reprojection. Masked pixels -> NaN nodata, metres throughout."""
     sentinels = list(product.invalid_values)   # native-unit fills, e.g. GLAD 101/102/103
     if product.nodata is not None:
         sentinels.append(product.nodata)
@@ -89,13 +71,46 @@ def clip_gee_band(product: Product, band: str, epsg: int, bounds,
     url = img.getDownloadURL({
         "region": region,
         "scale": product.native_res_m,
-        "crs": out_crs,
+        "crs": f"EPSG:{product.gee_native_epsg or epsg}",
         "format": "GEO_TIFF",
     })
     out_path = Path(out_path)
     urllib.request.urlretrieve(url, out_path)
     _fill_to_nan(out_path)
     return out_path
+
+
+def _region(ee, epsg: int, bounds):
+    """ee.Geometry.Rectangle for the ALS footprint, defined in the tile UTM."""
+    left, bottom, right, top = bounds
+    return ee.Geometry.Rectangle([left, bottom, right, top],
+                                 proj=f"EPSG:{epsg}", geodesic=False)
+
+
+def clip_gee_band(product: Product, band: str, epsg: int, bounds,
+                  out_path: Path, project: str = "forest-als") -> Path:
+    """Download `band` of `product.gee_asset` (collection mosaic) over `bounds`.
+    Used by single-epoch GEE products (GLAD) and ECHOSAT's per-year band select."""
+    ee = ee_init(project)
+    region = _region(ee, epsg, bounds)
+    img = ee.ImageCollection(product.gee_asset).filterBounds(region).mosaic().select([band])
+    return _export_image(product, img, region, epsg, out_path)
+
+
+def clip_gee_year_by_date(product: Product, year: int, epsg: int, bounds,
+                          out_path: Path, project: str = "forest-als") -> Path:
+    """Temporal GEE products with one IMAGE per year (GPW): filter the collection to
+    `year` by date, mosaic, select `product.gee_band`, then export like the rest."""
+    ee = ee_init(project)
+    region = _region(ee, epsg, bounds)
+    img = (
+        ee.ImageCollection(product.gee_asset)
+        .filterDate(f"{year}-01-01", f"{year + 1}-01-01")
+        .filterBounds(region)
+        .mosaic()
+        .select([product.gee_band])
+    )
+    return _export_image(product, img, region, epsg, out_path)
 
 
 def clip_echosat_year(product: Product, year: int, epsg: int, bounds,

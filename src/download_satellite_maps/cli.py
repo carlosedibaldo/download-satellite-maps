@@ -119,14 +119,20 @@ def _do_gee_single(pid, product, foots, work, overwrite, ee_project) -> None:
     print(f"[{pid}] done: ok={ok} skip={skip} err={err}", flush=True)
 
 
-def _do_echosat(pid, product, foots, work, overwrite, ee_project) -> None:
-    """ECHOSAT (GEE, temporal): one clip per tile per ALS-matched year."""
-    from .gee import clip_echosat_year
+def _do_gee_temporal(pid, product, foots, work, overwrite, ee_project) -> None:
+    """Temporal GEE products (ECHOSAT, GPW): one clip per tile per ALS-matched year.
+
+    GPW has one ee.Image per year (filter by date); ECHOSAT has one mosaic with a
+    band per year — `product.gee_temporal_by_date` selects the right clip function.
+    """
+    from .gee import clip_echosat_year, clip_gee_year_by_date
+    clip_year = (clip_gee_year_by_date if product.gee_temporal_by_date
+                 else clip_echosat_year)
     dest = f"{SATELLITE_PREFIX}/{pid}/neon/{foots[0]['site']}"
     avail = set(product.temporal_years)
     ok = skip = err = 0
     for f in foots:
-        years = sorted(set(f["years"]) & avail)   # ALS years covered by ECHOSAT
+        years = sorted(set(f["years"]) & avail)   # ALS years the product covers
         if not years:
             print(f"  ..   {f['tile_id']}: no ALS year in {product.temporal_years}",
                   flush=True)
@@ -139,8 +145,8 @@ def _do_echosat(pid, product, foots, work, overwrite, ee_project) -> None:
                 continue
             out = work / name
             try:
-                clip_echosat_year(product, year, f["epsg"], f["bounds"], out,
-                                  project=ee_project)
+                clip_year(product, year, f["epsg"], f["bounds"], out,
+                          project=ee_project)
                 storage.upload_file(out, dest)
                 ok += 1
                 print(f"  OK   {key}", flush=True)
@@ -178,7 +184,7 @@ def main() -> int:
     for pid in args.products:
         product = PRODUCTS[pid]
         if product.gee_asset and product.temporal_years:
-            _do_echosat(pid, product, foots, work, args.overwrite, args.ee_project)
+            _do_gee_temporal(pid, product, foots, work, args.overwrite, args.ee_project)
         elif product.gee_asset:
             _do_gee_single(pid, product, foots, work, args.overwrite, args.ee_project)
         elif product.tile_url_template is not None:
