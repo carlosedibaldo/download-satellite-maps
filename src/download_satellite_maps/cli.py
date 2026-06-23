@@ -20,7 +20,7 @@ from .products import PRODUCTS
 
 
 def _do_http_product(pid, product, foots, work, overwrite) -> None:
-    """Single-epoch HTTP products (eth/gpw/glad): one native subset per tile."""
+    """Single-epoch HTTP products (eth/gpw): one native subset per tile."""
     dest = f"{SATELLITE_PREFIX}/{pid}/neon/{foots[0]['site']}"
     ok = skip = err = 0
     for f in foots:
@@ -32,6 +32,32 @@ def _do_http_product(pid, product, foots, work, overwrite) -> None:
         out = work / name
         try:
             clip_to_tile(product, f["epsg"], f["bounds"], out, f["lon"], f["lat"])
+            storage.upload_file(out, dest)
+            ok += 1
+            print(f"  OK   {key}", flush=True)
+        except Exception as e:  # noqa: BLE001
+            err += 1
+            print(f"  ERR  {pid} {f['tile_id']}: {repr(e)[:160]}", flush=True)
+        finally:
+            out.unlink(missing_ok=True)
+    print(f"[{pid}] done: ok={ok} skip={skip} err={err}", flush=True)
+
+
+def _do_gee_single(pid, product, foots, work, overwrite, ee_project) -> None:
+    """Single-epoch GEE products (glad): one clip per tile at product.epoch_year."""
+    from .gee import clip_gee_band
+    dest = f"{SATELLITE_PREFIX}/{pid}/neon/{foots[0]['site']}"
+    ok = skip = err = 0
+    for f in foots:
+        name = f"{f['tile_id']}_{pid}_{product.epoch_year}.tif"
+        key = f"{dest}/{name}"
+        if not overwrite and storage.exists(key):
+            skip += 1
+            continue
+        out = work / name
+        try:
+            clip_gee_band(product, product.gee_band, f["epsg"], f["bounds"], out,
+                          project=ee_project)
             storage.upload_file(out, dest)
             ok += 1
             print(f"  OK   {key}", flush=True)
@@ -96,9 +122,11 @@ def main() -> int:
     work = Path(tempfile.mkdtemp(prefix="satmaps_"))
     for pid in args.products:
         product = PRODUCTS[pid]
-        if product.gee_asset:
+        if product.gee_asset and product.temporal_years:
             _do_echosat(pid, product, foots, work, args.overwrite, args.ee_project)
-        elif product.url is not None or product.regional:
+        elif product.gee_asset:
+            _do_gee_single(pid, product, foots, work, args.overwrite, args.ee_project)
+        elif product.url is not None:
             _do_http_product(pid, product, foots, work, args.overwrite)
         else:
             print(f"[{pid}] not wired yet — {product.notes}", flush=True)

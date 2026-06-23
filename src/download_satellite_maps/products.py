@@ -24,12 +24,12 @@ class Product:
     epoch_year: int
     native_res_m: float
     url: str | None = None            # single global source (/vsicurl)
-    regional: bool = False            # GLAD: per-region tiles
-    url_template: str | None = None   # regional: format with {region}
     scale_factor: float = 1.0         # SOURCE value -> metres (e.g. GPW dm *0.1)
     nodata: float | None = None       # source in-band fill -> NODATA
     invalid_values: tuple = ()        # extra source sentinels -> NODATA
     gee_asset: str | None = None      # Earth Engine asset id (not /vsicurl-able)
+    gee_band: str = "b1"              # band id for single-epoch GEE assets
+    gee_native_epsg: int | None = None  # output CRS for GEE clips (None=ALS tile UTM)
     temporal_years: tuple[int, ...] = ()  # per-year layers (temporal products)
     notes: str = ""
 
@@ -48,10 +48,14 @@ GPW = Product(
 )
 GLAD = Product(
     id="glad", name="GLAD/Potapov Global Forest Canopy Height", epoch_year=2019,
-    native_res_m=30.0, regional=True, invalid_values=(101.0, 102.0, 103.0),
-    url_template=("https://glad.geog.umd.edu/Potapov/Forest_height_2019/"
-                  "Forest_height_2019_{region}.tif"),
-    notes="raster values 101/102/103 = water/snow-ice/nodata (mask downstream)",
+    native_res_m=30.0, invalid_values=(101.0, 102.0, 103.0),
+    gee_asset="users/potapovpeter/GEDI_V27", gee_band="b1", gee_native_epsg=4326,
+    notes=("GEDI+Landsat 2019 (Potapov et al. 2020). GEE ImageCollection of 7 "
+           "regional tiles, single band b1, filterBounds+mosaic stitches them. "
+           "Native CRS is global EPSG:4326 (output kept there, not warped to UTM). "
+           "Source values 101/102/103 = water/snow-ice/nodata -> NaN. Replaces the "
+           "dead glad.umd.edu /vsicurl source. Mirror: "
+           "projects/sat-io/open-datasets/GLAD/GEDI_V27."),
 )
 META = Product(
     id="meta", name="Meta Global Canopy Height (Tolan et al.)", epoch_year=2024,
@@ -64,28 +68,16 @@ ECHOSAT = Product(
     id="echosat", name="AI4Forest ECHOSAT temporal canopy height", epoch_year=2024,
     native_res_m=10.0, scale_factor=0.01, nodata=None,   # source cm; masked (no in-band fill)
     gee_asset="projects/ai4forest/assets/echosat",
+    gee_native_epsg=4326,   # authors' README export CRS; matches other products.
+    # gee_native_epsg=None,  # <- uncomment to keep ECHOSAT in its native MGRS UTM
+    #                            (ALS-tile zone; reprojects only cross-zone tiles).
     temporal_years=tuple(range(2018, 2025)),   # 2018–2024 → bands b1..b7 (in order)
-    notes=("GEE ImageCollection of UTM tiles, 10 m. Source is int16 cm with 7 "
-           "bands b1..b7 = years 2018..2024; written as float32 metres (*0.01) "
-           "with nodata NODATA. CC-BY 4.0, Pauls et al. 2026 arXiv:2602.21421. "
-           "GEE-only (not /vsicurl); clipped per ALS-matched year — see gee.py."),
+    notes=("GEE ImageCollection of per-MGRS-tile UTM images, 10 m. Source is int16 "
+           "cm with 7 bands b1..b7 = years 2018..2024; written as float32 metres "
+           "(*0.01) with nodata NODATA. Output CRS EPSG:4326 to match the authors' "
+           "own export (README: scale 10, crs EPSG:4326) and the other products. "
+           "CC-BY 4.0, Pauls et al. 2026 arXiv:2602.21421. GEE-only (not /vsicurl); "
+           "clipped per ALS-matched year — see gee.py."),
 )
 
 PRODUCTS: dict[str, Product] = {p.id: p for p in (ETH, GPW, GLAD, META, ECHOSAT)}
-
-
-def glad_region(lon: float, lat: float) -> str:
-    """Map a point to a Potapov-2019 regional tile code (coarse continental boxes)."""
-    if lat < 12 and -82 <= lon <= -33:
-        return "SAM"                              # South America
-    if lon <= -30:
-        return "NAM"                              # North/Central America
-    if -30 < lon <= 60 and lat < 38:
-        return "AFR"                              # Africa
-    if -30 < lon <= 60:
-        return "EURO"                             # Europe / W Asia
-    if lat >= 38:
-        return "NASIA"                            # N Asia
-    if lat < -10 and lon > 100:
-        return "AUS"                              # Australia / Oceania
-    return "SASIA"                                # S/SE Asia (fallback)

@@ -16,7 +16,7 @@ from pathlib import Path
 import numpy as np
 import rasterio
 
-from .products import NODATA, Product, glad_region
+from .products import NODATA, Product
 
 _GDAL_ENV = {
     "GDAL_HTTP_MAX_RETRY": "5",
@@ -26,10 +26,6 @@ _GDAL_ENV = {
 
 
 def source_url(product: Product, lon: float, lat: float) -> str:
-    if product.regional:
-        if not product.url_template:
-            raise ValueError(f"{product.id} is regional but has no url_template")
-        return product.url_template.format(region=glad_region(lon, lat))
     if not product.url:
         raise ValueError(f"{product.id} has no source URL (not yet wired)")
     return product.url

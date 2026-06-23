@@ -1,17 +1,17 @@
-"""Earth Engine access for the ECHOSAT temporal canopy-height product.
+"""Earth Engine access for GEE-only canopy-height products (ECHOSAT, GLAD).
 
-ECHOSAT (`projects/ai4forest/assets/echosat`) is a GEE ImageCollection of ~643
-UTM tiles, 10 m, int16, each with 7 bands `b1..b7` = years 2018..2024 (heights in
-centimeters). It is NOT /vsicurl-able, so it can't go through the gdal_translate
-clip path used for the HTTP products. Instead we filter the collection to the
-tile footprint, mosaic, select the requested year's band, and download a windowed
-GeoTIFF via getDownloadURL.
+Some products aren't /vsicurl-able and can't go through the gdal_translate clip
+path used for the HTTP products (eth/gpw). For those we filter the GEE collection
+to the tile footprint, mosaic, select a band, and download a windowed GeoTIFF via
+getDownloadURL — see `clip_gee_band`. Two products use this path:
+  * ECHOSAT (`projects/ai4forest/assets/echosat`) — temporal, 10 m, int16 cm, 7
+    bands b1..b7 = years 2018..2024; `clip_echosat_year` resolves year -> band.
+  * GLAD/Potapov 2019 (`users/potapovpeter/GEDI_V27`) — single-epoch, 30 m, metres,
+    7 regional tiles mosaicked, single band b1, sentinels 101/102/103.
 
-The clip is written in the ALS tile's UTM (the same zone ECHOSAT uses for that
-location) at 10 m — effectively native, and directly comparable to the ALS grid.
-Unlike the HTTP products (kept in native units, scaled at sampling), ECHOSAT is
-written as float32 **metres** (source cm * 0.01) with nodata -9999, so the public
-clips read directly in metres and are consistent with the other CHM products.
+The clip is written in the ALS tile's UTM at the product's native resolution
+(effectively native, directly comparable to the ALS grid), as float32 **metres**
+(source * scale_factor) with NaN nodata — consistent with the HTTP products.
 
 Auth: needs an Earth Engine-enabled GCP project (default `forest-als`) and local
 credentials (gcloud ADC or `earthengine authenticate`). earthengine-api is an
@@ -52,36 +52,57 @@ def echosat_band(product: Product, year: int) -> str:
     return f"b{product.temporal_years.index(year) + 1}"
 
 
-def clip_echosat_year(product: Product, year: int, epsg: int, bounds,
-                      out_path: Path, project: str = "forest-als") -> Path:
-    """Download ECHOSAT's `year` band over `bounds` (in EPSG:`epsg`) to a 10 m
-    float32-metre GeoTIFF in that UTM. Source cm are scaled *0.01 -> m; masked
-    pixels become NaN nodata so the public clip reads directly in metres."""
+def clip_gee_band(product: Product, band: str, epsg: int, bounds,
+                  out_path: Path, project: str = "forest-als") -> Path:
+    """Download `band` of `product.gee_asset` over `bounds` (in EPSG:`epsg`, the ALS
+    tile's UTM) to a native-resolution float32-metre GeoTIFF. The OUTPUT CRS is the
+    product's native CRS — `product.gee_native_epsg` if set (e.g. GLAD is global
+    EPSG:4326), else `epsg` (e.g. ECHOSAT's per-tile UTM == the ALS zone). We never
+    force a reprojection: the output stays in the source's own projection.
+
+    Source sentinels (`nodata` + `invalid_values`, native units) are masked in EE
+    before scaling; the value is scaled *scale_factor -> metres; masked pixels become
+    NaN nodata so the public clip reads directly in metres like the other products."""
     ee = ee_init(project)
     left, bottom, right, top = bounds
-    crs = f"EPSG:{epsg}"
-    region = ee.Geometry.Rectangle([left, bottom, right, top], proj=crs,
-                                   geodesic=False)
-    band = echosat_band(product, year)
+    # The footprint is given in the ALS tile UTM; define the region there. The OUTPUT
+    # grid uses the product's native CRS so we don't resample into a foreign zone.
+    region = ee.Geometry.Rectangle([left, bottom, right, top],
+                                   proj=f"EPSG:{epsg}", geodesic=False)
+    out_crs = f"EPSG:{product.gee_native_epsg or epsg}"
     img = (
         ee.ImageCollection(product.gee_asset)
         .filterBounds(region)
         .mosaic()
         .select([band])
-        .multiply(product.scale_factor)        # source (cm) -> metres
+    )
+    sentinels = list(product.invalid_values)   # native-unit fills, e.g. GLAD 101/102/103
+    if product.nodata is not None:
+        sentinels.append(product.nodata)
+    for v in sentinels:
+        img = img.updateMask(img.neq(v))        # drop sentinel pixels -> masked -> NaN
+    img = (
+        img.multiply(product.scale_factor)      # source units -> metres
         .toFloat()
-        .unmask(_GEE_FILL)                      # masked -> numeric sentinel (NaN not allowed)
+        .unmask(_GEE_FILL)                       # masked -> numeric sentinel (NaN not allowed)
     )
     url = img.getDownloadURL({
         "region": region,
         "scale": product.native_res_m,
-        "crs": crs,
+        "crs": out_crs,
         "format": "GEO_TIFF",
     })
     out_path = Path(out_path)
     urllib.request.urlretrieve(url, out_path)
     _fill_to_nan(out_path)
     return out_path
+
+
+def clip_echosat_year(product: Product, year: int, epsg: int, bounds,
+                      out_path: Path, project: str = "forest-als") -> Path:
+    """ECHOSAT temporal clip: resolve `year` -> band b1..b7, then clip_gee_band."""
+    return clip_gee_band(product, echosat_band(product, year), epsg, bounds,
+                         out_path, project=project)
 
 
 def _fill_to_nan(path: Path) -> None:
