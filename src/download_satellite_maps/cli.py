@@ -43,6 +43,31 @@ def _do_http_product(pid, product, foots, work, overwrite) -> None:
     print(f"[{pid}] done: ok={ok} skip={skip} err={err}", flush=True)
 
 
+def _do_meta(pid, product, foots, work, overwrite) -> None:
+    """Meta quadkey-tiled COGs (meta_v1/meta_v2): one native-3857 clip per tile."""
+    from .meta import clip_meta_tile
+    dest = f"{SATELLITE_PREFIX}/{pid}/neon/{foots[0]['site']}"
+    ok = skip = err = 0
+    for f in foots:
+        name = f"{f['tile_id']}_{pid}_{product.epoch_year}.tif"
+        key = f"{dest}/{name}"
+        if not overwrite and storage.exists(key):
+            skip += 1
+            continue
+        out = work / name
+        try:
+            clip_meta_tile(product, f["epsg"], f["bounds"], out)
+            storage.upload_file(out, dest)
+            ok += 1
+            print(f"  OK   {key}", flush=True)
+        except Exception as e:  # noqa: BLE001
+            err += 1
+            print(f"  ERR  {pid} {f['tile_id']}: {repr(e)[:160]}", flush=True)
+        finally:
+            out.unlink(missing_ok=True)
+    print(f"[{pid}] done: ok={ok} skip={skip} err={err}", flush=True)
+
+
 def _do_gee_single(pid, product, foots, work, overwrite, ee_project) -> None:
     """Single-epoch GEE products (glad): one clip per tile at product.epoch_year."""
     from .gee import clip_gee_band
@@ -126,6 +151,8 @@ def main() -> int:
             _do_echosat(pid, product, foots, work, args.overwrite, args.ee_project)
         elif product.gee_asset:
             _do_gee_single(pid, product, foots, work, args.overwrite, args.ee_project)
+        elif product.tile_url_template is not None:
+            _do_meta(pid, product, foots, work, args.overwrite)
         elif product.url is not None:
             _do_http_product(pid, product, foots, work, args.overwrite)
         else:

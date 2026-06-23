@@ -31,6 +31,8 @@ class Product:
     gee_band: str = "b1"              # band id for single-epoch GEE assets
     gee_native_epsg: int | None = None  # output CRS for GEE clips (None=ALS tile UTM)
     temporal_years: tuple[int, ...] = ()  # per-year layers (temporal products)
+    tile_zoom: int | None = None      # Bing/MS quadkey zoom (Meta: v1=9, v2=10)
+    tile_url_template: str | None = None  # quadkey COG url, format with {quadkey}
     notes: str = ""
 
 
@@ -57,27 +59,43 @@ GLAD = Product(
            "dead glad.umd.edu /vsicurl source. Mirror: "
            "projects/sat-io/open-datasets/GLAD/GEDI_V27."),
 )
-META = Product(
-    id="meta", name="Meta Global Canopy Height (Tolan et al.)", epoch_year=2024,
-    native_res_m=1.0,
-    notes=("TODO: distributed as AWS S3 quadkey tiles "
-           "s3://dataforgood-fb-data/forests/v1/alsgedi_global_v6_float/ — needs "
-           "tile-intersection + mosaic before clip."),
+# Meta global canopy height: ~1.19 m uint8 metres (0-254, 255=nodata), EPSG:3857,
+# tiled on the Bing quadkey grid and served as /vsicurl COGs. Kept in native 3857
+# (no warp — preserves the 1 m grid). See meta.py for the quadkey-tile clip path.
+_META_RES = 1.1943285669558747   # native Web Mercator pixel size (m)
+META_V1 = Product(
+    id="meta_v1", name="Meta Global Canopy Height v1 (Tolan et al. 2024)",
+    epoch_year=2020, native_res_m=_META_RES, nodata=255.0, tile_zoom=9,
+    tile_url_template=("https://dataforgood-fb-data.s3.amazonaws.com/forests/v1/"
+                       "alsgedi_global_v6_float/chm/{quadkey}.tif"),
+    notes=("AWS Open Data (dataforgood-fb-data), zoom-9 quadkey COGs, 65536^2 px. "
+           "uint8 metres, EPSG:3857, native ~1.19 m -> float32 m + NaN. Tolan et al. "
+           "2024 arXiv:2304.07213. epoch_year=2020 = nominal canopy reference."),
+)
+META_V2 = Product(
+    id="meta_v2", name="Meta Global Canopy Height v2 (DINOv3, Brandt et al. 2026)",
+    epoch_year=2020, native_res_m=_META_RES, nodata=255.0, tile_zoom=10,
+    tile_url_template=("https://data.source.coop/tge-labs/meta-chm-v2/chm/"
+                       "{quadkey}.tif"),
+    notes=("source.coop tge-labs/meta-chm-v2, zoom-10 quadkey COGs, 32768^2 px. "
+           "uint8 metres, EPSG:3857, native ~1.19 m -> float32 m + NaN. DINOv3 "
+           "model ml3, Brandt et al. 2026 arXiv:2603.06382. CC-BY 4.0."),
 )
 ECHOSAT = Product(
     id="echosat", name="AI4Forest ECHOSAT temporal canopy height", epoch_year=2024,
     native_res_m=10.0, scale_factor=0.01, nodata=None,   # source cm; masked (no in-band fill)
     gee_asset="projects/ai4forest/assets/echosat",
-    gee_native_epsg=4326,   # authors' README export CRS; matches other products.
-    # gee_native_epsg=None,  # <- uncomment to keep ECHOSAT in its native MGRS UTM
-    #                            (ALS-tile zone; reprojects only cross-zone tiles).
+    gee_native_epsg=None,   # native MGRS UTM (ALS-tile zone); avoid needless warp.
+    # gee_native_epsg=4326,  # <- uncomment for the authors' README export CRS.
     temporal_years=tuple(range(2018, 2025)),   # 2018–2024 → bands b1..b7 (in order)
     notes=("GEE ImageCollection of per-MGRS-tile UTM images, 10 m. Source is int16 "
            "cm with 7 bands b1..b7 = years 2018..2024; written as float32 metres "
-           "(*0.01) with nodata NODATA. Output CRS EPSG:4326 to match the authors' "
-           "own export (README: scale 10, crs EPSG:4326) and the other products. "
-           "CC-BY 4.0, Pauls et al. 2026 arXiv:2602.21421. GEE-only (not /vsicurl); "
-           "clipped per ALS-matched year — see gee.py."),
+           "(*0.01) with nodata NODATA. Output kept in its native UTM (the ALS tile's "
+           "zone) so the only reprojection is the one onto the ALS grid at validation "
+           "time. CC-BY 4.0, Pauls et al. 2026 arXiv:2602.21421. GEE-only (not "
+           "/vsicurl); clipped per ALS-matched year — see gee.py."),
 )
 
-PRODUCTS: dict[str, Product] = {p.id: p for p in (ETH, GPW, GLAD, META, ECHOSAT)}
+PRODUCTS: dict[str, Product] = {
+    p.id: p for p in (ETH, GPW, GLAD, ECHOSAT, META_V1, META_V2)
+}
