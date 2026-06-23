@@ -14,6 +14,7 @@ from .config import ALS_CHM_PREFIX
 from . import storage
 
 _TILE_RE = re.compile(r"_(\d{6})_(\d{7})_")
+_YEAR_RE = re.compile(r"/chm/1m/(\d{4})/")   # ALS acquisition year in the CHM path
 TILE_SIZE_M = 1000.0
 
 
@@ -36,7 +37,12 @@ def site_epsg(site: str) -> int:
 
 
 def als_tile_footprints(site: str) -> list[dict]:
-    """Unique tile footprints: {tile_id, epsg, bounds, lon, lat}."""
+    """Unique tile footprints: {tile_id, epsg, bounds, lon, lat, years}.
+
+    `years` is the sorted set of ALS acquisition years that tile was flown
+    (parsed from the CHM path `chm/1m/<year>/`) — used to pick which years of a
+    temporal product (e.g. ECHOSAT) to clip per tile.
+    """
     epsg = site_epsg(site)
     to_wgs84 = Transformer.from_crs(epsg, 4326, always_xy=True)
     seen: dict[str, dict] = {}
@@ -46,12 +52,18 @@ def als_tile_footprints(site: str) -> list[dict]:
             continue
         e, n = int(m.group(1)), int(m.group(2))
         tid = f"{e}_{n}"
-        if tid in seen:
-            continue
-        lon, lat = to_wgs84.transform(e + TILE_SIZE_M / 2, n + TILE_SIZE_M / 2)
-        seen[tid] = {
-            "tile_id": tid, "epsg": epsg,
-            "bounds": (e, n, e + TILE_SIZE_M, n + TILE_SIZE_M),
-            "lon": lon, "lat": lat,
-        }
-    return sorted(seen.values(), key=lambda d: d["tile_id"])
+        ym = _YEAR_RE.search(path)
+        year = int(ym.group(1)) if ym else None
+        if tid not in seen:
+            lon, lat = to_wgs84.transform(e + TILE_SIZE_M / 2, n + TILE_SIZE_M / 2)
+            seen[tid] = {
+                "tile_id": tid, "epsg": epsg,
+                "bounds": (e, n, e + TILE_SIZE_M, n + TILE_SIZE_M),
+                "lon": lon, "lat": lat, "years": set(),
+            }
+        if year is not None:
+            seen[tid]["years"].add(year)
+    out = sorted(seen.values(), key=lambda d: d["tile_id"])
+    for f in out:
+        f["years"] = sorted(f["years"])
+    return out

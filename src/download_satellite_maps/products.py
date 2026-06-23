@@ -8,6 +8,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+# All clips are written as float32 CANOPY HEIGHT IN METRES with NaN nodata, so
+# the public products are unit- and nodata-consistent. NaN can never collide with
+# a real height and QGIS/GDAL/rasterio mask it automatically. Heights stay
+# full-precision float (submetre precision is illusory but we don't round, to keep
+# the values unaltered) — only the documented per-product scale is applied and the
+# source sentinels are remapped to NaN. Geometry/CRS are NOT touched (no warp).
+NODATA = float("nan")
+
 
 @dataclass(frozen=True)
 class Product:
@@ -18,9 +26,11 @@ class Product:
     url: str | None = None            # single global source (/vsicurl)
     regional: bool = False            # GLAD: per-region tiles
     url_template: str | None = None   # regional: format with {region}
-    scale_factor: float = 1.0         # applied after masking (e.g. GPW int*0.1 -> m)
-    nodata: float | None = None       # raster fill mapped to NaN
-    invalid_values: tuple = ()        # extra sentinel values mapped to NaN
+    scale_factor: float = 1.0         # SOURCE value -> metres (e.g. GPW dm *0.1)
+    nodata: float | None = None       # source in-band fill -> NODATA
+    invalid_values: tuple = ()        # extra source sentinels -> NODATA
+    gee_asset: str | None = None      # Earth Engine asset id (not /vsicurl-able)
+    temporal_years: tuple[int, ...] = ()  # per-year layers (temporal products)
     notes: str = ""
 
 
@@ -50,8 +60,18 @@ META = Product(
            "s3://dataforgood-fb-data/forests/v1/alsgedi_global_v6_float/ — needs "
            "tile-intersection + mosaic before clip."),
 )
+ECHOSAT = Product(
+    id="echosat", name="AI4Forest ECHOSAT temporal canopy height", epoch_year=2024,
+    native_res_m=10.0, scale_factor=0.01, nodata=None,   # source cm; masked (no in-band fill)
+    gee_asset="projects/ai4forest/assets/echosat",
+    temporal_years=tuple(range(2018, 2025)),   # 2018–2024 → bands b1..b7 (in order)
+    notes=("GEE ImageCollection of UTM tiles, 10 m. Source is int16 cm with 7 "
+           "bands b1..b7 = years 2018..2024; written as float32 metres (*0.01) "
+           "with nodata NODATA. CC-BY 4.0, Pauls et al. 2026 arXiv:2602.21421. "
+           "GEE-only (not /vsicurl); clipped per ALS-matched year — see gee.py."),
+)
 
-PRODUCTS: dict[str, Product] = {p.id: p for p in (ETH, GPW, GLAD, META)}
+PRODUCTS: dict[str, Product] = {p.id: p for p in (ETH, GPW, GLAD, META, ECHOSAT)}
 
 
 def glad_region(lon: float, lat: float) -> str:
