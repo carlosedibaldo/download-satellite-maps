@@ -61,6 +61,10 @@ def clip_to_tile(product: Product, epsg: int, bounds, out_path: Path,
     src = source_url(product, lon, lat)
     vsi = f"/vsicurl/{src}" if src.startswith(("http://", "https://")) else src
     left, bottom, right, top = bounds
+    # Overshoot the ALS extent by ~2 native pixels so the native-pixel snap (and any
+    # later regrid onto the ALS grid) never leaves the tile edge uncovered.
+    buf = 2 * product.native_res_m
+    left, bottom, right, top = left - buf, bottom - buf, right + buf, top + buf
     work = Path(tempfile.mkdtemp(prefix="clip_"))
     native = work / f"native_{out_path.name}"
     cmd = [

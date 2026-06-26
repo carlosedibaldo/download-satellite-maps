@@ -80,9 +80,15 @@ def _export_image(product: Product, img, region, epsg: int,
     return out_path
 
 
-def _region(ee, epsg: int, bounds):
-    """ee.Geometry.Rectangle for the ALS footprint, defined in the tile UTM."""
+def _region(ee, epsg: int, bounds, buffer_m: float = 0.0):
+    """ee.Geometry.Rectangle for the ALS footprint, defined in the tile UTM.
+
+    `buffer_m` overshoots the ALS extent (in UTM metres) so the export covers the
+    whole tile even after GEE's pixel snapping / a later regrid onto the ALS grid."""
     left, bottom, right, top = bounds
+    if buffer_m:
+        left, bottom, right, top = (left - buffer_m, bottom - buffer_m,
+                                    right + buffer_m, top + buffer_m)
     return ee.Geometry.Rectangle([left, bottom, right, top],
                                  proj=f"EPSG:{epsg}", geodesic=False)
 
@@ -92,7 +98,7 @@ def clip_gee_band(product: Product, band: str, epsg: int, bounds,
     """Download `band` of `product.gee_asset` (collection mosaic) over `bounds`.
     Used by single-epoch GEE products (GLAD) and ECHOSAT's per-year band select."""
     ee = ee_init(project)
-    region = _region(ee, epsg, bounds)
+    region = _region(ee, epsg, bounds, buffer_m=2 * product.native_res_m)
     img = ee.ImageCollection(product.gee_asset).filterBounds(region).mosaic().select([band])
     return _export_image(product, img, region, epsg, out_path)
 
@@ -102,7 +108,7 @@ def clip_gee_year_by_date(product: Product, year: int, epsg: int, bounds,
     """Temporal GEE products with one IMAGE per year (GPW): filter the collection to
     `year` by date, mosaic, select `product.gee_band`, then export like the rest."""
     ee = ee_init(project)
-    region = _region(ee, epsg, bounds)
+    region = _region(ee, epsg, bounds, buffer_m=2 * product.native_res_m)
     img = (
         ee.ImageCollection(product.gee_asset)
         .filterDate(f"{year}-01-01", f"{year + 1}-01-01")

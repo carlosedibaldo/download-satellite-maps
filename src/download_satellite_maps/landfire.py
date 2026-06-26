@@ -31,6 +31,9 @@ def clip_landfire(product: Product, epsg: int, bounds, out_path: Path) -> Path:
     EPSG:5070 float32 metres + NaN. The bbox is reprojected ALS-UTM -> 5070, the pixels
     are served already in 5070 (no warp), then scaled to metres."""
     left, bottom, right, top = bounds
+    # overshoot the ALS extent by ~2 native pixels (UTM m) so the clip fully covers the tile
+    buf = 2 * product.native_res_m
+    left, bottom, right, top = left - buf, bottom - buf, right + buf, top + buf
     tr = Transformer.from_crs(f"EPSG:{epsg}", f"EPSG:{LANDFIRE_EPSG}", always_xy=True)
     xs, ys = zip(*(tr.transform(x, y)
                    for x in (left, right) for y in (bottom, top)))
