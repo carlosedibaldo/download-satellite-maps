@@ -3,7 +3,7 @@ ALS tile footprints and upload to canopyboard-storage/satellite/.
 
     download-satellite-maps --site harv --products eth gpw glad
 
-Output: satellite/<product>/neon/<site>/<tile>_<product>_<year>.tif
+Output: satellite/<product>/neon/<site>/<year>/<tile>_<product>_<year>.tif
 Idempotent: skips clips already in the bucket (unless --overwrite).
 """
 from __future__ import annotations
@@ -19,9 +19,16 @@ from .footprints import als_tile_footprints
 from .products import PRODUCTS
 
 
+def _dest(pid: str, site: str, year) -> str:
+    """Upload dir for one product/site/year — the single source of truth for the
+    satellite layout: `satellite/<pid>/neon/<site>/<year>/`. The `<year>/` subdir
+    declutters multi-year products and mirrors the ALS `<…>/<year>/…` layout."""
+    return f"{SATELLITE_PREFIX}/{pid}/neon/{site}/{year}"
+
+
 def _do_http_product(pid, product, foots, work, overwrite) -> None:
     """Single-epoch HTTP products (eth/gpw): one native subset per tile."""
-    dest = f"{SATELLITE_PREFIX}/{pid}/neon/{foots[0]['site']}"
+    dest = _dest(pid, foots[0]["site"], product.epoch_year)
     ok = skip = err = 0
     for f in foots:
         name = f"{f['tile_id']}_{pid}_{product.epoch_year}.tif"
@@ -46,7 +53,7 @@ def _do_http_product(pid, product, foots, work, overwrite) -> None:
 def _do_landfire(pid, product, foots, work, overwrite) -> None:
     """LANDFIRE ImageServer products (landfire_ch): one native-5070 clip per tile."""
     from .landfire import clip_landfire
-    dest = f"{SATELLITE_PREFIX}/{pid}/neon/{foots[0]['site']}"
+    dest = _dest(pid, foots[0]["site"], product.epoch_year)
     ok = skip = err = 0
     for f in foots:
         name = f"{f['tile_id']}_{pid}_{product.epoch_year}.tif"
@@ -71,7 +78,7 @@ def _do_landfire(pid, product, foots, work, overwrite) -> None:
 def _do_meta(pid, product, foots, work, overwrite) -> None:
     """Meta quadkey-tiled COGs (meta_v1/meta_v2): one native-3857 clip per tile."""
     from .meta import clip_meta_tile
-    dest = f"{SATELLITE_PREFIX}/{pid}/neon/{foots[0]['site']}"
+    dest = _dest(pid, foots[0]["site"], product.epoch_year)
     ok = skip = err = 0
     for f in foots:
         name = f"{f['tile_id']}_{pid}_{product.epoch_year}.tif"
@@ -96,7 +103,7 @@ def _do_meta(pid, product, foots, work, overwrite) -> None:
 def _do_gee_single(pid, product, foots, work, overwrite, ee_project) -> None:
     """Single-epoch GEE products (glad): one clip per tile at product.epoch_year."""
     from .gee import clip_gee_band
-    dest = f"{SATELLITE_PREFIX}/{pid}/neon/{foots[0]['site']}"
+    dest = _dest(pid, foots[0]["site"], product.epoch_year)
     ok = skip = err = 0
     for f in foots:
         name = f"{f['tile_id']}_{pid}_{product.epoch_year}.tif"
@@ -128,7 +135,6 @@ def _do_gee_temporal(pid, product, foots, work, overwrite, ee_project) -> None:
     from .gee import clip_echosat_year, clip_gee_year_by_date
     clip_year = (clip_gee_year_by_date if product.gee_temporal_by_date
                  else clip_echosat_year)
-    dest = f"{SATELLITE_PREFIX}/{pid}/neon/{foots[0]['site']}"
     avail = set(product.temporal_years)
     ok = skip = err = 0
     for f in foots:
@@ -138,6 +144,7 @@ def _do_gee_temporal(pid, product, foots, work, overwrite, ee_project) -> None:
                   flush=True)
             continue
         for year in years:
+            dest = _dest(pid, f["site"], year)
             name = f"{f['tile_id']}_{pid}_{year}.tif"
             key = f"{dest}/{name}"
             if not overwrite and storage.exists(key):
