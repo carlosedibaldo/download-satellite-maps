@@ -14,9 +14,13 @@ from pyproj import Transformer
 from .config import ALS_CHM_PREFIX
 from . import storage
 
-# Trailing UTM/Lambert <east>_<north> of the CHM stem — robust across campaigns
-# (NEON 725000_4696000, IGN 0486_6195, SBE 571000_562000, NCALM 70000_1959000, …).
-_COORD_RE = re.compile(r"(\d+)_(\d+)$")
+# tile_id from the CHM stem, consistent across CHM ↔ satellite clip ↔ parquet:
+#   NEON  `..._725000_4696000_classified…` -> 725000_4696000  (embedded east_north)
+#   grid  `<PREFIX>_<site>_<year>_<east>_<north>` (TERN/SBE/NCALM/FORESTGEO/CMS/IGN)
+#         -> <east>_<north>                         (trailing _<year>_<east>_<north>)
+#   else  (e.g. EBA transects `NP_T-0001`, `NP_T-1041_06`) -> the FULL stem
+_NEON_TILE_RE = re.compile(r"_(\d{6}_\d{7})_")
+_GRID_TILE_RE = re.compile(r"_\d{4}_(\d+_\d+)$")
 _YEAR_RE = re.compile(r"/chm/1m/(\d{4})/")   # ALS acquisition year in the CHM path
 
 
@@ -28,9 +32,14 @@ def _chm_tifs(acquisition: str, site: str) -> list[str]:
     ]
 
 
-def _tile_id(stem: str) -> str | None:
-    m = _COORD_RE.search(stem)
-    return f"{m.group(1)}_{m.group(2)}" if m else None
+def _tile_id(stem: str) -> str:
+    m = _NEON_TILE_RE.search(stem)
+    if m:
+        return m.group(1)
+    m = _GRID_TILE_RE.search(stem)
+    if m:
+        return m.group(1)
+    return stem   # non-gridded names (EBA NP_T-XXXX) use the full stem as the id
 
 
 def als_tile_footprints(acquisition: str, site: str) -> list[dict]:
